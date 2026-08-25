@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Button, PageHeader, SectionCard, Input, Textarea, ImageUploader, Tabs } from "@/components/ui"
 import { getCompanyInfo, updateCompanyInfo, uploadCompanyLogo, deleteCompanyLogo, type CompanyPhone } from "@/lib/companyInfo"
 import { formatApiError } from "@/lib/apiError"
@@ -75,6 +75,37 @@ export default function SettingsPage() {
     { key: "social", label: "Social Media" },
   ]
 
+  // ── Swipeable slides ────────────────────────────────────────────────────────
+  // On mobile the tab bar scrolls horizontally and the content panes behave as
+  // slides: a horizontal swipe moves to the previous/next section.
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const [slideDir, setSlideDir] = useState<"left" | "right">("right")
+  const tabIndex = Math.max(0, tabs.findIndex((t) => t.key === tab))
+
+  const goToTab = (index: number) => {
+    if (index < 0 || index >= tabs.length || index === tabIndex) return
+    setSlideDir(index > tabIndex ? "right" : "left")
+    setTab(tabs[index].key)
+  }
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0]
+    touchStart.current = { x: t.clientX, y: t.clientY }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStart.current) return
+    const t = e.changedTouches[0]
+    const dx = t.clientX - touchStart.current.x
+    const dy = t.clientY - touchStart.current.y
+    touchStart.current = null
+    // Horizontal swipes switch slides. The generous vertical ratio guard keeps
+    // normal page scrolling and text-area touches working as expected.
+    if (Math.abs(dx) >= 56 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      goToTab(tabIndex + (dx < 0 ? 1 : -1))
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     setError("")
@@ -138,8 +169,16 @@ export default function SettingsPage() {
         <div className="rounded bg-white border border-[var(--border)] p-6 text-sm text-[var(--text-muted)]">Loading company settings…</div>
       ) : (
         <>
-          <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-5 bg-white border border-[var(--border)] rounded-t-lg px-2" />
+          <Tabs tabs={tabs} active={tab} onChange={setTab} className="mb-3 bg-white border border-[var(--border)] rounded-t-lg px-2" />
+          <p className="sm:hidden text-xs text-[var(--text-muted)] mb-3">Swipe left or right to switch sections.</p>
 
+          {/* Swipeable slide container — keyed remount drives the slide animation */}
+          <div
+            key={tab}
+            className={slideDir === "right" ? "slide-in-right" : "slide-in-left"}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
           {tab === "info" && (
             <div className="space-y-4">
               <SectionCard>
@@ -234,6 +273,7 @@ export default function SettingsPage() {
               </div>
             </SectionCard>
           )}
+          </div>
         </>
       )}
     </div>

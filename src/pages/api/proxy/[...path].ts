@@ -11,7 +11,15 @@ const UPSTREAM_BASE = 'https://harb-group.vercel.app/api/v1'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const path = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path ?? '')
-    const url = `${UPSTREAM_BASE}/${path}`
+
+    // Forward the ORIGINAL query string verbatim. req.query parses it away and
+    // the [...path] catch-all only ever contains path segments, so rebuilding
+    // the URL from req.query silently dropped every ?search=…&categoryId=…
+    // parameter before reaching the upstream API (search/filter appeared dead).
+    const rawUrl = req.url ?? ''
+    const qsIndex = rawUrl.indexOf('?')
+    const queryString = qsIndex >= 0 ? rawUrl.slice(qsIndex) : ''
+    const url = `${UPSTREAM_BASE}/${path}${queryString}`
 
     // Collect raw body
     const chunks: Uint8Array[] = []

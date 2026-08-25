@@ -73,3 +73,21 @@ body[dir="rtl"] {
 
 /* Transitions */
 a, button { transition: all 0.15s ease; }
+
+/* Hide scrollbars on horizontally scrollable tab bars while keeping them
+   swipeable/scrollable on touch devices. */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Slide animations used by the swipeable settings tab panels. Direction names
+   describe where the panel enters FROM. */
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.slide-in-right { animation: slide-in-right 0.22s ease; }
+.slide-in-left { animation: slide-in-left 0.22s ease; }

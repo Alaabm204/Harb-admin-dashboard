@@ -21,8 +21,9 @@ import { getProducts, type Product } from "@/lib/products"
 import { getProjects, type Project } from "@/lib/projects"
 import { formatApiError } from "@/lib/apiError"
 
-// The API does not return the currently featured products/projects, so the
-// last saved selection is cached locally to restore the checkboxes on reload.
+// The API does not return the currently featured products/projects (verified
+// live: GET /admin/homepage has no such keys), so the selection lives in
+// localStorage and stays the visible source of truth until a new one is saved.
 const FEATURED_PRODUCTS_KEY = "homepage-featured-products"
 const FEATURED_PROJECTS_KEY = "homepage-featured-projects"
 
@@ -33,6 +34,14 @@ const readCachedIds = (key: string): string[] => {
     return Array.isArray(parsed) ? parsed.map(String) : []
   } catch {
     return []
+  }
+}
+
+const writeCachedIds = (key: string, ids: string[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(ids))
+  } catch {
+    // Best-effort cache; ignore quota/serialization failures.
   }
 }
 
@@ -47,8 +56,10 @@ export default function HomepagePage() {
   const [heroSubAr, setHeroSubAr] = useState("")
   const [heroImage, setHeroImage] = useState("")
   const [heroImageFile, setHeroImageFile] = useState<File | null>(null)
-  const [featuredProducts, setFeaturedProductsState] = useState<string[]>([])
-  const [featuredProjects, setFeaturedProjectsState] = useState<string[]>([])
+  // Hydrate synchronously from the local cache so a previous choice is always
+  // visible immediately and can never be wiped by an async refetch.
+  const [featuredProducts, setFeaturedProductsState] = useState<string[]>(() => readCachedIds(FEATURED_PRODUCTS_KEY))
+  const [featuredProjects, setFeaturedProjectsState] = useState<string[]>(() => readCachedIds(FEATURED_PROJECTS_KEY))
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [allProjects, setAllProjects] = useState<Project[]>([])
   const [loadingLists, setLoadingLists] = useState(true)
@@ -64,8 +75,9 @@ export default function HomepagePage() {
         setHeroSubEn(data.hero.subtitleEn)
         setHeroSubAr(data.hero.subtitleAr)
         setHeroImage(data.hero.imageUrl)
-        setFeaturedProductsState(data.featuredProducts.length ? data.featuredProducts : readCachedIds(FEATURED_PRODUCTS_KEY))
-        setFeaturedProjectsState(data.featuredProjects.length ? data.featuredProjects : readCachedIds(FEATURED_PROJECTS_KEY))
+        // NOTE: the GET response carries no featured selections, and the local
+        // state is intentionally NOT overwritten here — the visible selection
+        // only changes when the user toggles or a save succeeds.
       } catch (err) {
         setError(formatApiError(err) || "Unable to load homepage content.")
       } finally {
@@ -95,15 +107,31 @@ export default function HomepagePage() {
   }, [])
 
   const toggleProduct = (id: string) =>
-    setFeaturedProductsState((ps) =>
-      ps.includes(id) ? ps.filter((p) => p !== id) : [...ps, id],
-    )
+    setFeaturedProductsState((ps) => {
+      const next = ps.includes(id) ? ps.filter((p) => p !== id) : [...ps, id]
+      // Persist immediately so the choice survives reloads even before saving.
+      writeCachedIds(FEATURED_PRODUCTS_KEY, next)
+      return next
+    })
   const toggleProject = (id: string) =>
-    setFeaturedProjectsState((ps) =>
-      ps.includes(id) ? ps.filter((p) => p !== id) : [...ps, id],
-    )
+    setFeaturedProjectsState((ps) => {
+      const next = ps.includes(id) ? ps.filter((p) => p !== id) : [...ps, id]
+      writeCachedIds(FEATURED_PROJECTS_KEY, next)
+      return next
+    })
 
   const handleSave = async () => {
+    // The backend requires at least one item per list — validate up front so
+    // the user's on-screen selection is never silently rejected or reset.
+    if (!featuredProducts.length) {
+      setError("At least one featured product must be selected.")
+      return
+    }
+    if (!featuredProjects.length) {
+      setError("At least one featured project must be selected.")
+      return
+    }
+
     setSaving(true)
     setError("")
     setSaved(false)
@@ -123,12 +151,11 @@ export default function HomepagePage() {
 
       await setFeaturedProducts(featuredProducts)
       await setFeaturedProjects(featuredProjects)
-      try {
-        localStorage.setItem(FEATURED_PRODUCTS_KEY, JSON.stringify(featuredProducts))
-        localStorage.setItem(FEATURED_PROJECTS_KEY, JSON.stringify(featuredProjects))
-      } catch {
-        // The cache is best-effort; saving still succeeded.
-      }
+
+      // Only after BOTH saves succeeded does the cached selection become the
+      // new "last saved choice" (it already matches what's on screen).
+      writeCachedIds(FEATURED_PRODUCTS_KEY, featuredProducts)
+      writeCachedIds(FEATURED_PROJECTS_KEY, featuredProjects)
 
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)

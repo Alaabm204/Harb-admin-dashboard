@@ -12,7 +12,7 @@ import MessagesPage from "@/views/MessagesPage"
 import HomepagePage from "@/views/HomepagePage"
 import SettingsPage from "@/views/SettingsPage"
 import ProfilePage from "@/views/ProfilePage"
-import { getProfile, hasSession, logout, clearTokens, refreshToken, type AdminProfile } from "@/lib/auth"
+import { getProfile, logout, clearTokens, refreshToken, type AdminProfile } from "@/lib/auth"
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -23,29 +23,20 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      if (!hasSession()) {
-        try {
-          await refreshToken()
-          const p = await getProfile()
-          setProfile(p)
-          setAuthenticated(true)
-        } catch {
-          clearTokens()
-          setAuthenticated(false)
-        }
+      // getProfile() auto-recovers the access token from the refresh cookie
+      // when missing/expired (see authenticatedRequest), so a plain call is
+      // enough: the user stays logged in until logout or the refresh cookie's
+      // lifetime ends.
+      try {
+        const p = await getProfile()
+        setProfile(p)
+        setAuthenticated(true)
+      } catch {
+        clearTokens()
+        setAuthenticated(false)
+      } finally {
         setCheckingSession(false)
-        return
       }
-      getProfile()
-        .then((p) => {
-          setProfile(p)
-          setAuthenticated(true)
-        })
-        .catch(() => {
-          clearTokens()
-          setAuthenticated(false)
-        })
-        .finally(() => setCheckingSession(false))
     }
 
     void init()
@@ -62,11 +53,13 @@ export default function App() {
   useEffect(() => {
     if (!authenticated) return
 
-    const REFRESH_INTERVAL_MS = 14 * 60 * 1000
+    // The backend's access-token TTL is 15 minutes; refresh every 10 minutes so
+    // an idle open tab never lets the token lapse between requests.
+    const REFRESH_INTERVAL_MS = 10 * 60 * 1000
     const intervalId = setInterval(() => {
       refreshToken().catch(() => {
-        // If refresh fails (e.g. logged out), the session-expired
-        // handler will clear the authenticated state.
+        // Network drops are ignored (session stays alive). Definitive refresh
+        // rejections dispatch the session-expired event, which clears auth.
       })
     }, REFRESH_INTERVAL_MS)
 

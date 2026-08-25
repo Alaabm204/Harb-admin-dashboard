@@ -1,5 +1,5 @@
 import { refreshToken, clearTokens } from "@/lib/auth"
-import { dispatchSessionExpired } from "@/lib/apiError"
+import { ApiStatusError, dispatchSessionExpired, isAuthStatusError } from "@/lib/apiError"
 
 function extractErrorMessage(body: any): string {
   if (!body || typeof body !== "object") return "Request failed."
@@ -36,9 +36,12 @@ export function createAdminRequest() {
       response = await fetch(url, { ...init, headers, credentials: "include" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch"
-      throw new Error(/failed to fetch|networkerror|network request failed|fetch failed/i.test(message)
-        ? "Unable to reach the server. Please check your connection."
-        : message)
+      const network = /failed to fetch|networkerror|network request failed|fetch failed/i.test(message)
+      throw new ApiStatusError(
+        network ? "Unable to reach the server. Please check your connection." : message,
+        0,
+        network,
+      )
     }
     const text = await response.text();
     let body: any = {};
@@ -46,21 +49,27 @@ export function createAdminRequest() {
       try { body = JSON.parse(text); } catch { body = {}; }
     }
     if (!response.ok) {
-      const msg = extractErrorMessage(body);
-      throw new Error(msg);
+      throw new ApiStatusError(extractErrorMessage(body), response.status);
     }
     return body as T;
   };
 
   return async function adminRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
     try {
+      if (!localStorage.getItem("accessToken")) {
+        // Access token missing (e.g. first load after browser restart) — try
+        // to recover it from the refresh cookie before giving up.
+        await refreshToken();
+      }
       return await makeRequest<T>(url, init);
     } catch (error) {
-      if (!(error instanceof Error) || !/token|unauthoriz|forbidden|expired|logged out/i.test(error.message)) {
+      // Refresh+retry ONLY on real auth rejections; everything else propagates.
+      if (!isAuthStatusError(error)) {
         throw error;
       }
-      const refreshed = await refreshToken().catch(() => null);
-      if (!refreshed) {
+      try {
+        await refreshToken();
+      } catch {
         clearTokens();
         dispatchSessionExpired();
         throw new Error("Session expired. Please log in again.");

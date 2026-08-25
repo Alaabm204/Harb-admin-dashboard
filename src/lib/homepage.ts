@@ -76,7 +76,12 @@ export async function deleteHeroImage(): Promise<void> {
 }
 
 export async function setFeaturedProducts(productIds: string[]): Promise<string[]> {
-  if (!productIds.length) return []
+  // The backend REQUIRES at least one featured product (verified live:
+  // {"productIds":[]} → 422 "At least 1 featured product is required").
+  // Surface that as an error instead of silently pretending the save worked.
+  if (!productIds.length) {
+    throw new Error("At least one featured product must be selected.")
+  }
   const response = await adminRequest<any>(`${API_BASE}/featured-products`, {
     method: "POST",
     body: JSON.stringify({ productIds: productIds.map((id) => ({ productId: id })) }),
@@ -94,7 +99,9 @@ export async function setFeaturedProducts(productIds: string[]): Promise<string[
 }
 
 export async function setFeaturedProjects(projectIds: string[]): Promise<string[]> {
-  if (!projectIds.length) return []
+  if (!projectIds.length) {
+    throw new Error("At least one featured project must be selected.")
+  }
   const response = await adminRequest<any>(`${API_BASE}/featured-projects`, {
     method: "POST",
     body: JSON.stringify({ projectIds: projectIds.map((id) => ({ projectId: id })) }),

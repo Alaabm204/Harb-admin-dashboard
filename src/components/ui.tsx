@@ -362,13 +362,24 @@ interface TabsProps {
 }
 
 export function Tabs({ tabs, active, onChange, className = "" }: TabsProps) {
+  const activeRef = useRef<HTMLButtonElement | null>(null)
+
+  // On narrow screens the bar scrolls horizontally — keep the active tab in view.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" })
+  }, [active])
+
   return (
-    <div className={`flex border-b border-[var(--border)] ${className}`}>
+    <div
+      className={`no-scrollbar -mb-px flex overflow-x-auto border-b border-[var(--border)] ${className}`}
+      style={{ scrollbarWidth: "none" }}
+    >
       {tabs.map((t) => (
         <button
           key={t.key}
+          ref={active === t.key ? activeRef : undefined}
           onClick={() => onChange(t.key)}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+          className={`whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             active === t.key
               ? "border-[var(--primary)] text-[var(--primary)]"
               : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]"

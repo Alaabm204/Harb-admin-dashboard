@@ -1,4 +1,4 @@
-import { dispatchSessionExpired } from "@/lib/apiError"
+import { ApiStatusError, dispatchSessionExpired, isAuthStatusError } from "@/lib/apiError"
 
 const API_BASE = "/api/proxy/auth";
 
@@ -133,9 +133,14 @@ const request = async (path: string, init: RequestInit = {}) => {
 
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: "include" }).catch((err) => {
     const message = err instanceof Error ? err.message : "Failed to fetch"
-    throw new Error(/failed to fetch|networkerror|network request failed|fetch failed/i.test(message)
-      ? "Unable to reach the server. Please check your connection."
-      : message)
+    const network = /failed to fetch|networkerror|network request failed|fetch failed/i.test(message)
+    // Network failures are tagged as such so callers never mistake a dropped
+    // connection for an authentication rejection.
+    throw new ApiStatusError(
+      network ? "Unable to reach the server. Please check your connection." : message,
+      0,
+      network,
+    )
   })
   const bodyText = await response.text();
   let body: ApiEnvelope = {};
@@ -151,9 +156,9 @@ const request = async (path: string, init: RequestInit = {}) => {
   if (!response.ok) {
     const msg = getErrorMessage(body);
     if (/too many|rate limit|too many attempts/i.test(msg)) {
-      throw new Error("Too many attempts. Please wait a moment and try again.");
+      throw new ApiStatusError("Too many attempts. Please wait a moment and try again.", response.status);
     }
-    throw new Error(msg);
+    throw new ApiStatusError(msg, response.status);
   }
 
   return body;
@@ -180,7 +185,21 @@ export async function login(email: string, password: string) {
   }
 }
 
-export async function refreshToken() {
+// Single-flight refresh: every caller awaits the same in-flight promise so a
+// burst of parallel 401s triggers exactly one /refresh-token call instead of
+// racing several (which used to end sessions spuriously).
+let refreshInFlight: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+
+export function refreshToken() {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefreshToken().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefreshToken(): Promise<{ accessToken: string; refreshToken: string }> {
   try {
     const response = await request("/refresh-token", { method: "POST" });
 
@@ -189,13 +208,16 @@ export async function refreshToken() {
     if (!accessToken) {
       clearTokens();
       dispatchSessionExpired();
-      throw new Error("Session expired. Please log in again.");
+      throw new ApiStatusError("Refresh did not return an access token.", 401);
     }
 
     return { accessToken, refreshToken: "" };
   } catch (error) {
-    const msg = error instanceof Error ? error.message : "";
-    if (/logged out|no refresh|session expired|already logged|refresh token/i.test(msg)) {
+    // A pure network drop must NOT end the session — the cookie is still valid
+    // and the next real request will retry. Only definitive rejections from the
+    // auth endpoint (missing/expired/invalid refresh cookie) log the user out.
+    const isNetworkFailure = error instanceof ApiStatusError && error.isNetwork;
+    if (!isNetworkFailure) {
       clearTokens();
       dispatchSessionExpired();
     }
@@ -204,30 +226,32 @@ export async function refreshToken() {
 }
 
 export async function authenticatedRequest(path: string, init: RequestInit = {}) {
-  const token = localStorage.getItem("accessToken");
-  if (!token) {
-    clearTokens();
-    dispatchSessionExpired();
-    throw new Error("Session expired. Please log in again.");
-  }
-
+  // Read the token FRESH on every attempt: after a refresh the retry below
+  // must send the new access token, not the expired one captured earlier.
   const makeRequest = () => {
     const headers = new Headers(init.headers ?? undefined);
     headers.set("Accept", "application/json");
-    if (token) headers.set("token", `Bearer ${token}`);
+    const currentToken = localStorage.getItem("accessToken");
+    if (currentToken) headers.set("token", `Bearer ${currentToken}`);
     return request(path, { ...init, headers });
   };
 
   try {
+    if (!localStorage.getItem("accessToken")) {
+      // No access token in storage but a refresh cookie may still be valid —
+      // try to mint one instead of immediately bouncing to the login page.
+      await refreshToken();
+    }
     return await makeRequest();
   } catch (error) {
-    if (!(error instanceof Error) || !/token|unauthoriz|forbidden|expired/i.test(error.message)) {
+    // Only genuine auth rejections justify a refresh+retry cycle; validation
+    // errors, rate limits and network drops must surface untouched.
+    if (!isAuthStatusError(error)) {
       throw error;
     }
-    const refreshed = await refreshToken().catch(() => null);
-    if (!refreshed) {
-      clearTokens();
-      dispatchSessionExpired();
+    try {
+      await refreshToken();
+    } catch {
       throw new Error("Session expired. Please log in again.");
     }
     return makeRequest();
