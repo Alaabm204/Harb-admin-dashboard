@@ -6,19 +6,10 @@ export const config = {
   },
 }
 
-// Upstream backend base URL — overridable via ADMIN_API_BASE_URL in
-// .env.local (server-side only), with a safe default fallback.
-const UPSTREAM_BASE = process.env.ADMIN_API_BASE_URL || 'https://harb-group.vercel.app/api/v1'
-
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+const UPSTREAM_BASE = 'https://harb-group.vercel.app/api/v1'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    if (!ALLOWED_METHODS.has(req.method ?? '')) {
-      res.setHeader('Allow', 'GET, POST, PUT, PATCH, DELETE')
-      res.status(405).json({ success: false, message: 'Method not allowed' })
-      return
-    }
     const path = Array.isArray(req.query.path) ? req.query.path.join('/') : String(req.query.path ?? '')
     const url = `${UPSTREAM_BASE}/${path}`
 
