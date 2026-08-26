@@ -9,6 +9,7 @@ import {
   Switch,
 } from "@/components/ui"
 import {
+  getFeaturedSelections,
   getHomepage,
   updateHeroSection,
   uploadHeroImage,
@@ -75,9 +76,29 @@ export default function HomepagePage() {
         setHeroSubEn(data.hero.subtitleEn)
         setHeroSubAr(data.hero.subtitleAr)
         setHeroImage(data.hero.imageUrl)
-        // NOTE: the GET response carries no featured selections, and the local
-        // state is intentionally NOT overwritten here — the visible selection
-        // only changes when the user toggles or a save succeeds.
+
+        // The saved selections live on the SERVER (public GET /homepage) so all
+        // devices see the same choice. Server wins whenever it responds; the
+        // localStorage cache is only a fallback for offline/error cases.
+        try {
+          const selections = await getFeaturedSelections()
+          if (selections.products.length || selections.projects.length) {
+            setFeaturedProductsState(selections.products)
+            setFeaturedProjectsState(selections.projects)
+            writeCachedIds(FEATURED_PRODUCTS_KEY, selections.products)
+            writeCachedIds(FEATURED_PROJECTS_KEY, selections.projects)
+          } else {
+            // Server responded with nothing saved — show that truth instead of
+            // a stale local cache, EXCEPT keep ids whose products/projects no
+            // longer exist anywhere (nothing to show for them anyway).
+            setFeaturedProductsState([])
+            setFeaturedProjectsState([])
+            writeCachedIds(FEATURED_PRODUCTS_KEY, [])
+            writeCachedIds(FEATURED_PROJECTS_KEY, [])
+          }
+        } catch {
+          // Selection read failed (e.g. network) — keep the cached hydration.
+        }
       } catch (err) {
         setError(formatApiError(err) || "Unable to load homepage content.")
       } finally {
@@ -266,7 +287,7 @@ export default function HomepagePage() {
           {/* Featured Products */}
           <SectionCard title="Featured Products">
             <p className="text-xs text-[var(--text-muted)] mb-4">
-              Select products to feature on the homepage. Note: the API doesn't report the current selection — your last saved choice is shown.
+              Select products to feature on the homepage. Your choice is saved to the server and shown on every device. At least one product must stay selected.
             </p>
             {loadingLists ? (
               <div className="text-sm text-[var(--text-muted)]">Loading products…</div>
@@ -319,7 +340,7 @@ export default function HomepagePage() {
           {/* Featured Projects */}
           <SectionCard title="Featured Projects">
             <p className="text-xs text-[var(--text-muted)] mb-4">
-              Select projects to feature on the homepage. Note: the API doesn't report the current selection — your last saved choice is shown.
+              Select projects to feature on the homepage. Your choice is saved to the server and shown on every device. At least one project must stay selected.
             </p>
             {loadingLists ? (
               <div className="text-sm text-[var(--text-muted)]">Loading projects…</div>

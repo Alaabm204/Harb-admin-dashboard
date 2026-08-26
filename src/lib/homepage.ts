@@ -4,21 +4,27 @@ export interface HeroSection { titleEn: string; titleAr: string; subtitleEn: str
 export interface HomepageContent { hero: HeroSection; featuredProducts: string[]; featuredProjects: string[]; }
 
 const API_BASE = "/api/proxy/admin/homepage";
+// The ADMIN homepage endpoint never returns the featured selections. They ARE
+// persisted server-side though — the PUBLIC /homepage endpoint exposes them
+// (verified live: data.featuredProducts / data.featuredProjects with {_id,…}
+// objects). That public endpoint is therefore the cross-device source of truth.
+const PUBLIC_HOMEPAGE_BASE = "/api/proxy/homepage";
 
 const adminRequest = createAdminRequest();
 
-// Backend homepage shape:
-// { _id, heroTitleAr, heroTitleEn, heroSubtitleAr, heroSubtitleEn,
-//   heroImage: { url, public_id, responsiveVariants } }
-// The GET response does not include the featured product/project selections;
-// they can only be set through the featured-products/featured-projects
-// endpoints.
-// Featured selections may come back as plain ids or as objects such as
-// { productId, productName, displayOrder } / { projectId, ... }.
-const toIdList = (value: unknown, key: string): string[] => {
+// Backend homepage shapes:
+// • ADMIN  GET /admin/homepage → hero text/image only (bilingual fields);
+//   it NEVER includes the featured selections.
+// • PUBLIC GET /homepage → hero plus featuredProducts/featuredProjects as
+//   arrays of objects ({ _id, name, …, displayOrder }).
+const toIdList = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item: any) => (typeof item === "string" ? item : String(item?.[key] ?? item?._id ?? item?.id ?? "")))
+    .map((item: any) =>
+      typeof item === "string"
+        ? item
+        : String(item?._id ?? item?.id ?? item?.productId ?? item?.projectId ?? ""),
+    )
     .filter(Boolean);
 };
 
@@ -33,8 +39,23 @@ export async function getHomepage(): Promise<HomepageContent> {
       subtitleAr: String(payload?.heroSubtitleAr ?? ""),
       imageUrl: String(payload?.heroImage?.url ?? ""),
     },
-    featuredProducts: toIdList(payload?.featuredProducts, "productId"),
-    featuredProjects: toIdList(payload?.featuredProjects, "projectId"),
+    featuredProducts: [],
+    featuredProjects: [],
+  };
+}
+
+// Reads the CURRENTLY SAVED featured product/project ids from the server so the
+// admin UI shows the same choice on every device. A cache-buster keeps any
+// intermediary from serving a stale copy right after a save.
+export async function getFeaturedSelections(): Promise<{ products: string[]; projects: string[] }> {
+  const response = await adminRequest<any>(
+    `${PUBLIC_HOMEPAGE_BASE}?_=${Date.now()}`,
+    { method: "GET" },
+  );
+  const payload = response?.data ?? response ?? {};
+  return {
+    products: toIdList(payload?.featuredProducts),
+    projects: toIdList(payload?.featuredProjects),
   };
 }
 
