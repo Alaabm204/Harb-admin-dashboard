@@ -1,2 +1,4 @@
-allowBuilds:
-  sharp: set this to true or false
+# Approved package build scripts (pnpm ≥10 requires explicit approval).
+# Equivalent of running `pnpm approve-builds` for sharp's native postinstall.
+onlyBuiltDependencies:
+  - sharp
