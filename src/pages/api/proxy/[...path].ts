@@ -6,7 +6,7 @@ export const config = {
   },
 }
 
-const UPSTREAM_BASE = 'https://harb-group.vercel.app/api/v1'
+const UPSTREAM_BASE = (process.env.ADMIN_API_BASE_URL || String()).trim() || 'https://harb-group.onrender.com/api/v1'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
