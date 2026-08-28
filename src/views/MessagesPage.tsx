@@ -9,6 +9,7 @@ import {
 } from "@/components/ui"
 import { deleteMessage, getContactMessages, getMessageDetails, type ContactMessage } from "@/lib/contactMessages"
 import { formatApiError } from "@/lib/apiError"
+import { formatMessageDateTime } from "@/lib/formatDate"
 
 const PER_PAGE = 10
 
@@ -106,7 +107,7 @@ export default function MessagesPage() {
                   )}
                   <span>
                     <span className="text-[var(--text-muted)]">Date: </span>
-                    <span>{selected.date}</span>
+                    <span>{formatMessageDateTime(selected.date)}</span>
                   </span>
                 </div>
               </div>
@@ -195,7 +196,7 @@ export default function MessagesPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-[var(--text-secondary)] text-xs max-w-[220px] truncate">{message.subject || "—"}</td>
-                      <td className="px-5 py-3 text-[var(--text-muted)] text-xs whitespace-nowrap">{message.date}</td>
+                      <td className="px-5 py-3 text-[var(--text-muted)] text-xs whitespace-nowrap">{formatMessageDateTime(message.date)}</td>
                       <td className="px-5 py-3">
                         <StatusBadge variant={message.read ? "read" : "unread"} label={message.read ? "Read" : "Unread"} />
                       </td>

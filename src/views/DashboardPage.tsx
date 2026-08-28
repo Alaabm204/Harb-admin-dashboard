@@ -3,6 +3,7 @@ import { Card, StatusBadge, Button } from "@/components/ui"
 import { getDashboardStatistics } from "@/lib/dashboard"
 import { getContactMessages } from "@/lib/contactMessages"
 import { formatApiError } from "@/lib/apiError"
+import { formatMessageDateTime } from "@/lib/formatDate"
 import type { PageKey } from "@/components/Layout"
 
 interface Props {
@@ -83,13 +84,6 @@ export default function DashboardPage({ onNavigate }: Props) {
     },
   ]
 
-  const formatDate = (value: string) => {
-    if (!value) return "—"
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return value
-    return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-  }
-
   return (
     <div>
       <div className="mb-6">
@@ -162,7 +156,7 @@ export default function DashboardPage({ onNavigate }: Props) {
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-[var(--text-muted)] text-xs whitespace-nowrap">{formatDate(m.date)}</td>
+                    <td className="px-5 py-3 text-[var(--text-muted)] text-xs whitespace-nowrap">{formatMessageDateTime(m.date)}</td>
                     <td className="px-5 py-3">
                       <StatusBadge variant={m.read ? 'read' : 'unread'} label={m.read ? 'Read' : 'Unread'} />
                     </td>
