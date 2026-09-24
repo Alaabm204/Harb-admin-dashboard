@@ -1,1 +1,0 @@
-void async function(){ for(const s of [0.5,1,2,5]){ const body=Buffer.alloc(Math.round(s*1024*1024),97); const r=await fetch('https://harb-group.onrender.com/api/v1/admin/products/test/images',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body}); console.log(s+'MB-; } }() 

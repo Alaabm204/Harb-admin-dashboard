@@ -1,24 +1,6 @@
 import { refreshToken, clearTokens } from "@/lib/auth"
 import { ApiStatusError, dispatchSessionExpired, isAuthStatusError } from "@/lib/apiError"
 
-// Direct-to-backend base for FILE UPLOADS (FormData bodies).
-//
-// Why bypass the /api/proxy/* route? Vercel enforces a hard 4.5MB request-body
-// limit on API routes / serverless functions. Multipart uploads routed through
-// the proxy die at Vercel's edge with "413 Request Entity Too Large" — even for
-// files as small as ~2MB once multipart encoding overhead is added. The Render
-// backend has no such limit (verified up to 10MB), so uploads are sent straight
-// from the browser to the upstream API instead.
-const DIRECT_UPLOAD_BASE = (process.env.NEXT_PUBLIC_ADMIN_API_BASE_URL || String()).trim() || "https://harb-group.onrender.com/api/v1"
-
-// Rewrites "/api/proxy/<path>" to "<UPSTREAM>/<path>" so the browser talks to
-// the backend directly. Returns the URL unchanged when it is not a proxy call.
-const toDirectUploadUrl = (url: string): string => {
-  if (!url.startsWith("/api/proxy/")) return url
-  const path = url.slice("/api/proxy/".length)
-  return `${DIRECT_UPLOAD_BASE}/${path}`
-}
-
 function extractErrorMessage(body: any): string {
   if (!body || typeof body !== "object") return "Request failed."
 
@@ -51,10 +33,7 @@ export function createAdminRequest() {
 
     let response: Response
     try {
-      // File uploads (FormData) go directly to the upstream backend, bypassing
-      // the /api/proxy/* route — see the note above DIRECT_UPLOAD_BASE.
-      const requestUrl = init.body instanceof FormData ? toDirectUploadUrl(url) : url
-      response = await fetch(requestUrl, { ...init, headers, credentials: "include" });
+      response = await fetch(url, { ...init, headers, credentials: "include" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to fetch"
       const network = /failed to fetch|networkerror|network request failed|fetch failed/i.test(message)
