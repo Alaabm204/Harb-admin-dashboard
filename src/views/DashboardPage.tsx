@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useState } from "react"
 import { Card, StatusBadge, Button } from "@/components/ui"
 import { getDashboardStatistics } from "@/lib/dashboard"
+import { getWeeklyVisitors, type WeeklyVisitors } from "@/lib/analytics"
 import { getContactMessages } from "@/lib/contactMessages"
 import { formatApiError } from "@/lib/apiError"
 import { formatMessageDateTime } from "@/lib/formatDate"
@@ -15,6 +16,8 @@ const LATEST_MESSAGES_LIMIT = 5
 
 export default function DashboardPage({ onNavigate }: Props) {
   const [stats, setStats] = useState({ totalProducts: 0, totalProjects: 0, totalMessages: 0, unreadMessages: 0 })
+  const [weekly, setWeekly] = useState<WeeklyVisitors>({ days: [], total: 0 })
+  const [weeklyError, setWeeklyError] = useState("")
   const [messages, setMessages] = useState<Array<{ id: string; sender: string; email: string; date: string; read: boolean }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -26,9 +29,15 @@ export default function DashboardPage({ onNavigate }: Props) {
         // Read the latest messages from the same contact-messages endpoint the
         // Messages page uses, so entries deleted there disappear here too (the
         // dedicated dashboard/recent-messages endpoint can serve stale rows).
-        const [statistics, latestResult] = await Promise.all([
+        const [statistics, latestResult, weeklyVisitors] = await Promise.all([
           getDashboardStatistics(),
           getContactMessages({ page: 1, perPage: LATEST_MESSAGES_LIMIT }),
+          // Visitor analytics must never blank the whole dashboard, so its
+          // failure is captured separately instead of rejecting Promise.all.
+          getWeeklyVisitors().catch((err) => {
+            setWeeklyError(formatApiError(err) || "Unable to load visitor analytics.")
+            return null
+          }),
         ])
         const latest = [...latestResult.items]
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -36,6 +45,10 @@ export default function DashboardPage({ onNavigate }: Props) {
           .map((m) => ({ id: m.id, sender: m.sender, email: m.email, date: m.date, read: m.read }))
         setStats(statistics)
         setMessages(latest)
+        if (weeklyVisitors) {
+          setWeekly(weeklyVisitors)
+          setWeeklyError("")
+        }
         setError("")
       } catch (err) {
         setError(formatApiError(err))
@@ -82,6 +95,19 @@ export default function DashboardPage({ onNavigate }: Props) {
       color: "#7c3aed",
       badge: stats.unreadMessages,
     },
+    {
+      label: "Weekly Visitors",
+      value: weekly.total,
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 00-3-3.87" />
+          <path d="M16 3.13a4 4 0 010 7.75" />
+        </svg>
+      ),
+      color: "#0d9488",
+    },
   ]
 
   return (
@@ -97,7 +123,7 @@ export default function DashboardPage({ onNavigate }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {statCards.map((s) => (
           <Card key={s.label} className="p-5 flex items-center gap-4">
             <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: s.color + "18", color: s.color }}>
@@ -117,6 +143,53 @@ export default function DashboardPage({ onNavigate }: Props) {
           </Card>
         ))}
       </div>
+
+      <Card className="mb-6">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">Weekly Visitors</h2>
+          <span className="text-xs text-[var(--text-muted)]">
+            Total: <span className="font-semibold text-[var(--text-primary)]">{loading ? "—" : weekly.total}</span>
+          </span>
+        </div>
+        <div className="px-5 py-5">
+          {weeklyError ? (
+            <div className="py-4 text-sm text-[var(--error)]">{weeklyError}</div>
+          ) : loading ? (
+            <div className="h-40 flex items-end gap-2 sm:gap-3">
+              {[45, 70, 55, 85, 60, 75, 50].map((h, i) => (
+                <div key={i} className="flex-1 h-full flex items-end">
+                  <div className="w-full rounded-t bg-[var(--surface-secondary)] animate-pulse" style={{ height: `${h}%` }} />
+                </div>
+              ))}
+            </div>
+          ) : weekly.days.length === 0 || weekly.total === 0 ? (
+            <div className="py-8 text-sm text-[var(--text-muted)] text-center">No visitor data for this week yet.</div>
+          ) : (
+            <div className="h-40 flex items-end gap-2 sm:gap-3">
+              {weekly.days.map((d, i) => {
+                const max = Math.max(...weekly.days.map((x) => x.value), 1)
+                const pct = d.value > 0 ? Math.max((d.value / max) * 100, 8) : 3
+                return (
+                  <div
+                    key={`${d.label}-${i}`}
+                    className="flex-1 h-full flex flex-col items-center gap-1.5 min-w-0"
+                    title={`${d.label}: ${d.value} visitors`}
+                  >
+                    <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{d.value}</span>
+                    <div className="w-full flex-1 flex items-end">
+                      <div
+                        className="w-full rounded-t transition-all"
+                        style={{ height: `${pct}%`, backgroundColor: "var(--primary)" }}
+                      />
+                    </div>
+                    <span className="w-full text-[10px] text-[var(--text-muted)] text-center truncate">{d.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </Card>
 
       <Card>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
