@@ -209,34 +209,60 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 export async function uploadProjectImages(projectId: string, files: File[]): Promise<ProjectImage[]> {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("images", file));
-  const response = await adminRequest<any>(`${API_BASE}/${projectId}/images`, { method: "POST", body: formData });
-  const payload = response?.data ?? response ?? {};
-  // The projects endpoint nests the created images under `uploadedImages`
-  // ({ projectId, uploadedImages: [...] }), unlike products where `data` is the
-  // array itself. Accept both shapes.
-  const list = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.uploadedImages)
-      ? payload.uploadedImages
-      : Array.isArray(payload?.images)
-        ? payload.images
-        : [];
-  const uploaded = list
-    .map((img: any) => ({
-      url: String(img?.url ?? ""),
-      // Only a Mongo-style _id is accepted by the DELETE endpoint.
-      id: img?._id ? String(img._id) : img?.id ? String(img.id) : undefined,
-    }))
-    .filter((img: ProjectImage) => img.url);
-
-  // Merge with previously known images so earlier uploads keep their ids.
-  const previous = getStoredProjectImages(projectId).filter(
-    (img) => !uploaded.some((u: ProjectImage) => u.url === img.url),
-  );
+  // Files are uploaded ONE PER REQUEST. Vercel caps every API-route request
+  // body at 4.5MB ("413 Request Entity Too Large" beyond that) and all
+  // upload traffic flows through the /api/proxy/* route on Vercel. Packing
+  // all files into a single multipart body compounds their sizes, so e.g.
+  // 3 x 2MB images trip the cap even though each file is fine on its own.
+  // One file per request keeps every request under the cap.
+  const uploaded: ProjectImage[] = [];
+  let failure: unknown = null;
+  for (const file of files) {
+    try {
+      const formData = new FormData();
+      formData.append("images", file);
+      const response = await adminRequest<any>(`${API_BASE}/${projectId}/images`, { method: "POST", body: formData });
+      const payload = response?.data ?? response ?? {};
+      // The projects endpoint nests the created images under `uploadedImages`
+      // ({ projectId, uploadedImages: [...] }), unlike products where `data` is
+      // the array itself. Accept both shapes.
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.uploadedImages)
+          ? payload.uploadedImages
+          : Array.isArray(payload?.images)
+            ? payload.images
+            : [];
+      for (const img of list) {
+        const url = String(img?.url ?? "");
+        if (!url) continue;
+        uploaded.push({
+          url,
+          // Only a Mongo-style _id is accepted by the DELETE endpoint.
+          id: img?._id ? String(img._id) : img?.id ? String(img.id) : undefined,
+        });
+      }
+    } catch (err) {
+      // Keep what already uploaded (persisted below) so earlier files in the
+      // batch are not lost, then surface the error.
+      failure = err;
+      break;
+    }
+  }
+  const previous: ProjectImage[] = [];
+  for (const img of getStoredProjectImages(projectId)) {
+    let seen = false;
+    for (const u of uploaded) {
+      if (u.url === img.url) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) previous.push(img);
+  }
   const result = [...previous, ...uploaded];
   setStoredProjectImages(projectId, result);
+  if (failure) throw failure;
   return result;
 }
 

@@ -280,25 +280,51 @@ export async function deleteProduct(id: string): Promise<void> {
 
 
 export async function uploadProductImages(productId: string, files: File[]): Promise<ProductImage[]> {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("images", file));
-  const response = await adminRequest<any>(`${API_BASE}/${productId}/images`, { method: "POST", body: formData });
-  const payload = response?.data ?? response ?? {};
-  const list = Array.isArray(payload) ? payload : [];
-  const uploaded = list
-    .map((img: any) => ({
-      url: String(img?.url ?? ""),
-      // Only a Mongo-style _id is accepted by the DELETE endpoint.
-      id: img?._id ? String(img._id) : img?.id ? String(img.id) : undefined,
-    }))
-    .filter((img: ProductImage) => img.url);
-
-  // Merge with previously known images so earlier uploads keep their ids.
-  const previous = getStoredProductImages(productId).filter(
-    (img) => !uploaded.some((u: ProductImage) => u.url === img.url),
-  );
+  // Files are uploaded ONE PER REQUEST. Vercel caps every API-route request
+  // body at 4.5MB ("413 Request Entity Too Large" beyond that) and all
+  // upload traffic flows through the /api/proxy/* route on Vercel. Packing
+  // all files into a single multipart body compounds their sizes, so e.g.
+  // 3 x 2MB images trip the cap even though each file is fine on its own.
+  // One file per request keeps every request under the cap.
+  const uploaded: ProductImage[] = [];
+  let failure: unknown = null;
+  for (const file of files) {
+    try {
+      const formData = new FormData();
+      formData.append("images", file);
+      const response = await adminRequest<any>(`${API_BASE}/${productId}/images`, { method: "POST", body: formData });
+      const payload = response?.data ?? response ?? {};
+      const list = Array.isArray(payload) ? payload : [];
+      for (const img of list) {
+        const url = String(img?.url ?? "");
+        if (!url) continue;
+        uploaded.push({
+          url,
+          // Only a Mongo-style _id is accepted by the DELETE endpoint.
+          id: img?._id ? String(img._id) : img?.id ? String(img.id) : undefined,
+        });
+      }
+    } catch (err) {
+      // Keep what already uploaded (persisted below) so earlier files in the
+      // batch are not lost, then surface the error.
+      failure = err;
+      break;
+    }
+  }
+  const previous: ProductImage[] = [];
+  for (const img of getStoredProductImages(productId)) {
+    let seen = false;
+    for (const u of uploaded) {
+      if (u.url === img.url) {
+        seen = true;
+        break;
+      }
+    }
+    if (!seen) previous.push(img);
+  }
   const result = [...previous, ...uploaded];
   setStoredProductImages(productId, result);
+  if (failure) throw failure;
   return result;
 }
 
