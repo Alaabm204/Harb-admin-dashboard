@@ -341,6 +341,10 @@ export async function deleteProductImage(productId: string, imageId: string): Pr
 // POST /admin/products/:id/pdf (multipart — the endpoint requires exactly one
 // file under the field key "file").
 export async function uploadProductPdf(productId: string, file: File): Promise<string> {
+  if (file.size === 0) {
+    // Local guard: clear message instead of the backend 500 "Empty file".
+    throw new Error("The selected file is empty (0 bytes). Please choose a different file.")
+  }
   const formData = new FormData();
   formData.append("file", file);
   const response = await adminRequest<any>(`${API_BASE}/${productId}/pdf`, {

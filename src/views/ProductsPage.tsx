@@ -168,15 +168,25 @@ export default function ProductsPage() {
     setFormOpen(true)
   }
 
-  const handlePdfPick = (files: FileList | null) => {
+  const handlePdfPick = async (files: FileList | null) => {
     const file = files?.[0]
     if (!file) return
     if (file.type && !/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) {
       setError("Only PDF files are supported.")
       return
     }
+    if (file.size === 0) {
+      // A 0-byte file here would later produce the backend 500 "Empty file".
+      setError("The selected file is empty (0 bytes). Please choose a different file.")
+      return
+    }
+    // Snapshot the bytes NOW: the input value is reset below, and some
+    // browsers invalidate Files belonging to the inputs FileList once its
+    // value is cleared - which could make the upload serialize a 0-byte
+    // file even though the chosen file was fine on disk.
+    const buffer = await file.arrayBuffer()
     setError("")
-    setPendingPdf(file)
+    setPendingPdf(new File([buffer], file.name, { type: file.type || "application/pdf" }))
     setRemovePdf(false)
     if (pdfInputRef.current) pdfInputRef.current.value = ""
   }
@@ -537,7 +547,7 @@ export default function ProductsPage() {
               <div className="min-w-0">
                 {pendingPdf ? (
                   <>
-                    <p className="text-sm font-medium text-[var(--text-primary)] truncate">{pendingPdf.name}</p>
+                    <p className="text-sm font-medium text-[var(--text-primary)] truncate">{pendingPdf.name} ({pendingPdf.size < 1048576 ? Math.max(1, Math.round(pendingPdf.size / 1024)) + " KB" : (pendingPdf.size / 1048576).toFixed(2) + " MB"})</p>
                     <p className="text-xs text-[var(--text-muted)]">Will be uploaded when you save</p>
                   </>
                 ) : removePdf ? (
