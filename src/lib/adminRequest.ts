@@ -55,9 +55,17 @@ export function createAdminRequest() {
       // the /api/proxy/* route (see DIRECT_UPLOAD_BASE above). If the direct
       // call fails with a network/CORS-type error, fall back once to the proxy
       // so small uploads still work if the backend CORS config ever regresses.
-      const requestUrl = init.body instanceof FormData ? toDirectUploadUrl(url) : url
+      const isDirectUpload = init.body instanceof FormData
+      const requestUrl = isDirectUpload ? toDirectUploadUrl(url) : url
       try {
-        response = await fetch(requestUrl, { ...init, headers, credentials: "include" });
+        // Cross-origin uploads must NOT carry credentials: the backend answers
+        // with Access-Control-Allow-Origin * and browsers reject * when the
+        // request carries credentials (cookies) - the response gets hidden
+        // even though the upload reached the backend. Auth uses the token
+        // header, so cookies are not needed for the direct call. The proxy
+        // fallback below keeps credentials because the refresh cookie lives
+        // on same-origin /api/proxy/* calls.
+        response = await fetch(requestUrl, { ...init, headers, credentials: isDirectUpload ? "omit" : "include" });
       } catch (directErr) {
         if (!(init.body instanceof FormData)) throw directErr
         console.warn("Direct upload failed, retrying through the proxy:", directErr)
