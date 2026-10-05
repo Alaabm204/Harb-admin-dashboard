@@ -17,7 +17,6 @@ const LATEST_MESSAGES_LIMIT = 5
 export default function DashboardPage({ onNavigate }: Props) {
   const [stats, setStats] = useState({ totalProducts: 0, totalProjects: 0, totalMessages: 0, unreadMessages: 0 })
   const [weekly, setWeekly] = useState<WeeklyVisitors>({ days: [], total: 0 })
-  const [weeklyError, setWeeklyError] = useState("")
   const [messages, setMessages] = useState<Array<{ id: string; sender: string; email: string; date: string; read: boolean }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -32,12 +31,9 @@ export default function DashboardPage({ onNavigate }: Props) {
         const [statistics, latestResult, weeklyVisitors] = await Promise.all([
           getDashboardStatistics(),
           getContactMessages({ page: 1, perPage: LATEST_MESSAGES_LIMIT }),
-          // Visitor analytics must never blank the whole dashboard, so its
-          // failure is captured separately instead of rejecting Promise.all.
-          getWeeklyVisitors().catch((err) => {
-            setWeeklyError(formatApiError(err) || "Unable to load visitor analytics.")
-            return null
-          }),
+          // Non-fatal: a failed analytics call falls back to the zeroed card
+          // instead of blanking the whole dashboard.
+          getWeeklyVisitors().catch(() => null),
         ])
         const latest = [...latestResult.items]
           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -45,10 +41,7 @@ export default function DashboardPage({ onNavigate }: Props) {
           .map((m) => ({ id: m.id, sender: m.sender, email: m.email, date: m.date, read: m.read }))
         setStats(statistics)
         setMessages(latest)
-        if (weeklyVisitors) {
-          setWeekly(weeklyVisitors)
-          setWeeklyError("")
-        }
+        if (weeklyVisitors) setWeekly(weeklyVisitors)
         setError("")
       } catch (err) {
         setError(formatApiError(err))
@@ -143,53 +136,6 @@ export default function DashboardPage({ onNavigate }: Props) {
           </Card>
         ))}
       </div>
-
-      <Card className="mb-6">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">Weekly Visitors</h2>
-          <span className="text-xs text-[var(--text-muted)]">
-            Total: <span className="font-semibold text-[var(--text-primary)]">{loading ? "—" : weekly.total}</span>
-          </span>
-        </div>
-        <div className="px-5 py-5">
-          {weeklyError ? (
-            <div className="py-4 text-sm text-[var(--error)]">{weeklyError}</div>
-          ) : loading ? (
-            <div className="h-40 flex items-end gap-2 sm:gap-3">
-              {[45, 70, 55, 85, 60, 75, 50].map((h, i) => (
-                <div key={i} className="flex-1 h-full flex items-end">
-                  <div className="w-full rounded-t bg-[var(--surface-secondary)] animate-pulse" style={{ height: `${h}%` }} />
-                </div>
-              ))}
-            </div>
-          ) : weekly.days.length === 0 || weekly.total === 0 ? (
-            <div className="py-8 text-sm text-[var(--text-muted)] text-center">No visitor data for this week yet.</div>
-          ) : (
-            <div className="h-40 flex items-end gap-2 sm:gap-3">
-              {weekly.days.map((d, i) => {
-                const max = Math.max(...weekly.days.map((x) => x.value), 1)
-                const pct = d.value > 0 ? Math.max((d.value / max) * 100, 8) : 3
-                return (
-                  <div
-                    key={`${d.label}-${i}`}
-                    className="flex-1 h-full flex flex-col items-center gap-1.5 min-w-0"
-                    title={`${d.label}: ${d.value} visitors`}
-                  >
-                    <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{d.value}</span>
-                    <div className="w-full flex-1 flex items-end">
-                      <div
-                        className="w-full rounded-t transition-all"
-                        style={{ height: `${pct}%`, backgroundColor: "var(--primary)" }}
-                      />
-                    </div>
-                    <span className="w-full text-[10px] text-[var(--text-muted)] text-center truncate">{d.label}</span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </Card>
 
       <Card>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
