@@ -28,6 +28,7 @@ import {
   deleteProductImage,
   deleteProductPdf,
   getProducts,
+  getProductPdfUrl,
   updateProduct,
   uploadProductImages,
   uploadProductPdf,
@@ -74,6 +75,7 @@ export default function ProductsPage() {
   const [pendingPdf, setPendingPdf] = useState<File | null>(null)
   const [removePdf, setRemovePdf] = useState(false)
   const pdfInputRef = useRef<HTMLInputElement | null>(null)
+  const pdfFetchRef = useRef<string | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -165,7 +167,31 @@ export default function ProductsPage() {
     setOriginalPdfUrl(p.pdfUrl ?? "")
     setPendingPdf(null)
     setRemovePdf(false)
+    // The admin list never carries the PDF URL and localStorage only has it
+    // for the device that uploaded, so fetch the real URL from the public
+    // single-product route (GET /products/:id exposes productPdf). This keeps
+    // View current file working for every user and device.
+    pdfFetchRef.current = p.id
+    getProductPdfUrl(p.id)
+      .then((url) => {
+        if (pdfFetchRef.current !== p.id) return // a different product was opened
+        setPdfUrl(url)
+        setOriginalPdfUrl(url)
+      })
+      .catch(() => {})
     setFormOpen(true)
+  }
+
+  // Read the picked files bytes; File.arrayBuffer() is missing on some
+  // older mobile browsers, so fall back to FileReader (supported everywhere).
+  const readAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+    if (typeof file.arrayBuffer === "function") return file.arrayBuffer()
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.onerror = () => reject(reader.error ?? new Error("Unable to read the selected file."))
+      reader.readAsArrayBuffer(file)
+    })
   }
 
   const handlePdfPick = async (files: FileList | null) => {
@@ -180,13 +206,19 @@ export default function ProductsPage() {
       setError("The selected file is empty (0 bytes). Please choose a different file.")
       return
     }
-    // Snapshot the bytes NOW: the input value is reset below, and some
-    // browsers invalidate Files belonging to the inputs FileList once its
-    // value is cleared - which could make the upload serialize a 0-byte
-    // file even though the chosen file was fine on disk.
-    const buffer = await file.arrayBuffer()
     setError("")
-    setPendingPdf(new File([buffer], file.name, { type: file.type || "application/pdf" }))
+    try {
+      // Snapshot the bytes NOW: the input value is reset at the end and some
+      // browsers invalidate Files belonging to the inputs FileList once its
+      // value is cleared - which could make the upload serialize a 0-byte file.
+      const buffer = await readAsArrayBuffer(file)
+      setPendingPdf(new File([buffer], file.name, { type: file.type || "application/pdf" }))
+    } catch (err) {
+      // Never lose the selection: keep the picked file visible even when the
+      // byte snapshot fails (observed on some mobile browsers).
+      console.error("PDF snapshot failed:", err)
+      setPendingPdf(file)
+    }
     setRemovePdf(false)
     if (pdfInputRef.current) pdfInputRef.current.value = ""
   }

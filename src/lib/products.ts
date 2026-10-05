@@ -369,4 +369,17 @@ export async function deleteProductPdf(productId: string): Promise<void> {
   if (productId) clearStoredProductPdfUrl(productId);
 }
 
+// GET /products/:id (public route - the admin /admin/products/:id does not
+// exist) exposes the attached PDF as productPdf. Used by the edit form so
+// View current file works on any device: the admin list never carries the
+// PDF URL and localStorage only remembers uploads made on that device.
+export async function getProductPdfUrl(productId: string): Promise<string> {
+  if (!productId) return "";
+  const response = await adminRequest<any>("/api/proxy/products/" + productId, { method: "GET" });
+  const item = response?.data?.product ?? response?.data ?? response;
+  const url = normalizePdfUrl(item) ?? "";
+  if (url) setStoredProductPdfUrl(productId, url);
+  return url;
+}
+
 
